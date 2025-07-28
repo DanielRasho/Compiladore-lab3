@@ -16,15 +16,23 @@
     forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
 
     # Nixpkgs instantiated for supported system types.
-    nixpkgsFor = forAllSystems (system: import nixpkgs {inherit system; config.allowUnfree = true;});
+    nixpkgsFor = forAllSystems (system:
+      import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      });
   in {
     devShells = forAllSystems (system: let
       pkgs = nixpkgsFor.${system};
+      python = pkgs.python.withPackages (p: [
+        p.antlr4-python3-runtime
+      ]);
     in {
       default = pkgs.mkShell {
         packages = [
           pkgs.terraform
           pkgs.jq
+          python
         ];
       };
     });
