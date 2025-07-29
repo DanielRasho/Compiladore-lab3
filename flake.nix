@@ -24,7 +24,7 @@
   in {
     devShells = forAllSystems (system: let
       pkgs = nixpkgsFor.${system};
-      python = pkgs.python.withPackages (p: [
+      python = pkgs.python3.withPackages (p: [
         p.antlr4-python3-runtime
       ]);
     in {
@@ -33,6 +33,7 @@
           pkgs.terraform
           pkgs.jq
           python
+          pkgs.antlr4
         ];
       };
     });
