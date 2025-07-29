@@ -3,6 +3,7 @@ import sys
 import time
 import requests
 import argparse
+import json
 from antlr4 import *
 from TerraformSubsetLexer import TerraformSubsetLexer
 from TerraformSubsetParser import TerraformSubsetParser
@@ -60,6 +61,19 @@ class TerraformApplyListener(TerraformSubsetListener):
         return self.provider_token_expr.strip('"')
 
 
+def delete_droplet(api_token: str, droplet_id: str):
+    url = f"https://api.digitalocean.com/v2/droplets/{droplet_id}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_token}",
+    }
+
+    print("[*] Deleting droplet...")
+    response = requests.delete(url, headers=headers)
+    response.raise_for_status()
+    print(f"[+] Droplet deleted with ID: {droplet_id}")
+
+
 def create_droplet(api_token, config):
     url = "https://api.digitalocean.com/v2/droplets"
     headers = {
@@ -97,7 +111,7 @@ def create_droplet(api_token, config):
         networks = droplet_info["networks"]["v4"]
         public_ips = [n["ip_address"] for n in networks if n["type"] == "public"]
         if public_ips:
-            return public_ips[0]
+            return (public_ips[0], droplet_id)
         time.sleep(5)
 
 
@@ -116,7 +130,7 @@ def main():
     )
     args = parser.parse_args()
 
-    print("Will use following flags:", args)
+    # print("Will use following flags:", args)
 
     input_stream = FileStream(args.filename)
     lexer = TerraformSubsetLexer(input_stream)
@@ -132,8 +146,16 @@ def main():
     if not listener.droplet_config:
         raise Exception("Missing digitalocean_droplet resource.")
 
-    ip = create_droplet(token, listener.droplet_config)
-    print(f"[✓] Droplet available at IP: {ip}")
+    if args.destroy:
+        with open(".tfstate", "r") as file:
+            data = json.load(file)
+            delete_droplet(token, data.id)
+            print(f"[✓] Resources deleted!")
+    else:
+        (ip, id) = create_droplet(token, listener.droplet_config)
+        with open(".tfstate", "w") as file:
+            file.write(f'{"id": {id}, "ip": {ip}}')
+        print(f"[✓] Droplet available at IP ({ip}) with ID ({id})")
 
 
 if __name__ == "__main__":
