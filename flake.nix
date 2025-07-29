@@ -34,6 +34,7 @@
           pkgs.jq
           python
           pkgs.antlr4
+          pkgs.black
         ];
       };
     });
