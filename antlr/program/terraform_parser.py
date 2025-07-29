@@ -149,12 +149,12 @@ def main():
     if args.destroy:
         with open(".tfstate", "r") as file:
             data = json.load(file)
-            delete_droplet(token, data.id)
+            delete_droplet(token, data["id"])
             print(f"[✓] Resources deleted!")
     else:
         (ip, id) = create_droplet(token, listener.droplet_config)
         with open(".tfstate", "w") as file:
-            file.write(f'{"id": {id}, "ip": {ip}}')
+            file.write(f'{{"id": "{id}", "ip": "{ip}"}}')
         print(f"[✓] Droplet available at IP ({ip}) with ID ({id})")
 
 
