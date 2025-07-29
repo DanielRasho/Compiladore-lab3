@@ -101,8 +101,24 @@ def create_droplet(api_token, config):
         time.sleep(5)
 
 
-def main(argv):
-    input_stream = FileStream(argv[1])
+def main():
+    parser = argparse.ArgumentParser(
+        prog="Terraform Parser",
+        description="Program that makes it easy to define and deploy Terraform configurations",
+        epilog="UwU",
+    )
+    parser.add_argument("filename", help='Filename to "compile".')
+    parser.add_argument(
+        "-d",
+        "--destroy",
+        action="store_true",
+        help="Whether to destroy the deployment or not.",
+    )
+    args = parser.parse_args()
+
+    print("Will use following flags:", args)
+
+    input_stream = FileStream(args.filename)
     lexer = TerraformSubsetLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = TerraformSubsetParser(stream)
@@ -121,4 +137,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    main()

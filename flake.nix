@@ -26,6 +26,7 @@
       pkgs = nixpkgsFor.${system};
       python = pkgs.python3.withPackages (p: [
         p.antlr4-python3-runtime
+        p.requests
       ]);
     in {
       default = pkgs.mkShell {
