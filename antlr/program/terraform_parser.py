@@ -47,6 +47,15 @@ class TerraformApplyListener(TerraformSubsetListener):
             val = kv.expr().getText().strip('"')
             self.droplet_config[key] = val
 
+        # SSH Key verification
+        if "ssh_key" in self.droplet_config:
+            ssh_path = self.droplet_config["ssh_key"]
+            try:
+                with open(ssh_path, "r") as f:
+                    self.droplet_config["ssh_key_content"] = f.read().strip()
+            except FileNotFoundError:
+                raise Exception(f"SSH key file '{ssh_path}' not found")
+
     def resolve_token(self):
         if not self.provider_token_expr:
             raise Exception("No token specified in provider block.")
@@ -81,12 +90,33 @@ def create_droplet(api_token, config):
         "Authorization": f"Bearer {api_token}",
     }
 
+    ssh_fingerprint = None
+    if "ssh-key_content" in config:
+        list_resp = requests.get("https://api.digitalocean.com/v2/account/keys", headers=headers)
+        list_resp.raise_for_status()
+        keys = list_resp.json()["ssh_keys"]
+        pub_key = config["ssh_key_content"]
+
+        for key in keys:
+            if key["public_key"] == pub_key:
+                shh_fingerprint = key["fingerprint"]
+                break
+
+        if not ssh_fingerprint:
+            add_resp = requests.post(
+                "https://api.digitalocean.com/v2/account/keys",
+                headers=headers,
+                json={"name": f"{config['name']}-key", "public_key": pub_key},
+            )
+            add_resp.raise_for_status()
+            ssh_fingerprint = add_resp.json()["ssh_key"]["fingerprint"]
+
     payload = {
         "name": config["name"],
         "region": config["region"],
         "size": config["size"],
         "image": config["image"],
-        "ssh_keys": [],
+        "ssh_keys": [ssh_fingerprint] if ssh_fingerprint else [],
         "backups": False,
         "ipv6": False,
         "user_data": None,
