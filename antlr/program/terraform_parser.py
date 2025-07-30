@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import time
 import requests
@@ -44,17 +45,37 @@ class TerraformApplyListener(TerraformSubsetListener):
 
         for kv in ctx.body().keyValue():
             key = kv.IDENTIFIER().getText()
-            val = kv.expr().getText().strip('"')
-            self.droplet_config[key] = val
+            expr_ctx = kv.expr()
 
-        # SSH Key verification
-        if "ssh_key" in self.droplet_config:
-            ssh_path = self.droplet_config["ssh_key"]
-            try:
-                with open(ssh_path, "r") as f:
-                    self.droplet_config["ssh_key_content"] = f.read().strip()
-            except FileNotFoundError:
-                raise Exception(f"SSH key file '{ssh_path}' not found")
+            if expr_ctx.list_():
+                items = []
+                for item in expr_ctx.list_().expr():
+                    items.append(item.getText())
+                self.droplet_config[key] = items
+            else:
+                self.droplet_config[key] = expr_ctx.getText().strip('"')
+
+        if "ssh_keys" in self.droplet_config:
+            ssh_key_exprs = self.droplet_config["ssh_keys"]
+
+            if isinstance(ssh_key_exprs, list):
+                for expr in ssh_key_exprs:
+                    if "digitalocean_ssh_key" in expr:
+                        self.droplet_config["ssh_key_reference"] = expr
+                    elif "file(" in expr:
+                        import re, os
+                        match = re.search(r'file\("([^"]+)"\)', expr)
+                        if match:
+                            ssh_path = match.group(1).replace("~", os.path.expanduser("~"))
+                            try:
+                                with open(ssh_path, "r") as f:
+                                    self.droplet_config["ssh_key_content"] = f.read().strip()
+                                    self.droplet_config["ssh_key_path"] = ssh_path
+                            except FileNotFoundError:
+                                raise Exception(f"SSH key file '{ssh_path}' not found")
+            else:
+                raise Exception(f"Expected ssh_keys to be a list, got: {ssh_key_exprs}")
+
 
     def resolve_token(self):
         if not self.provider_token_expr:
@@ -83,40 +104,47 @@ def delete_droplet(api_token: str, droplet_id: str):
     print(f"[+] Droplet deleted with ID: {droplet_id}")
 
 
-def create_droplet(api_token, config):
+def create_droplet(api_token, config, ssh_key_path="~/.ssh/id_rsa.pub"):
     url = "https://api.digitalocean.com/v2/droplets"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token}",
     }
 
+    with open(os.path.expanduser(ssh_key_path), 'r') as f:
+        pub_key = f.read().strip()
+
     ssh_fingerprint = None
-    if "ssh-key_content" in config:
-        list_resp = requests.get("https://api.digitalocean.com/v2/account/keys", headers=headers)
-        list_resp.raise_for_status()
-        keys = list_resp.json()["ssh_keys"]
-        pub_key = config["ssh_key_content"]
+    key_resp = requests.get("https://api.digitalocean.com/v2/account/keys", headers=headers)
+    key_resp.raise_for_status()
+    keys = key_resp.json()["ssh_keys"]
 
-        for key in keys:
-            if key["public_key"] == pub_key:
-                shh_fingerprint = key["fingerprint"]
-                break
+    for key in keys:
+        if key["public_key"] == pub_key:
+            ssh_fingerprint = key["fingerprint"]
+            print(f"[i] SSH key already exists in DigitalOcean: {key['name']} ({ssh_fingerprint})")
+            break
 
-        if not ssh_fingerprint:
-            add_resp = requests.post(
-                "https://api.digitalocean.com/v2/account/keys",
-                headers=headers,
-                json={"name": f"{config['name']}-key", "public_key": pub_key},
-            )
-            add_resp.raise_for_status()
-            ssh_fingerprint = add_resp.json()["ssh_key"]["fingerprint"]
+    if not ssh_fingerprint:
+        add_resp = requests.post(
+            "https://api.digitalocean.com/v2/account/keys",
+            headers=headers,
+            json={
+                "name": f"{config['name']}-key",
+                "public_key": pub_key
+            },
+        )
+        add_resp.raise_for_status()
+        ssh_info = add_resp.json()["ssh_key"]
+        ssh_fingerprint = ssh_info["fingerprint"]
+        print(f"[+] SSH key uploaded successfully: {ssh_info['name']} ({ssh_fingerprint})")
 
     payload = {
         "name": config["name"],
         "region": config["region"],
         "size": config["size"],
         "image": config["image"],
-        "ssh_keys": [ssh_fingerprint] if ssh_fingerprint else [],
+        "ssh_keys": [ssh_fingerprint],
         "backups": False,
         "ipv6": False,
         "user_data": None,
